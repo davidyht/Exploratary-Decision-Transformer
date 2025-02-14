@@ -182,10 +182,11 @@ def train():
         train_context_loss = []
         printw("Num train batches: " + str(len(train_loader0)), log_filename)
         printw("Num test batches: " + str(len(test_loader)), log_filename)
-        filename_test = f'{filename}_model'
+        filename_test_act = f'{filename}_model_act'
+        filename_test_ctx = f'{filename}_model_ctx'
 
-        start_epoch, model_act = load_checkpoints(model_act, filename_test)
-        start_epoch, model_ctx = load_checkpoints(model_ctx, filename_test)
+        start_epoch, model_act = load_checkpoints(model_act, filename_test_act)
+        start_epoch, model_ctx = load_checkpoints(model_ctx, filename_test_ctx)
         filename = f'{filename}'
 
         if start_epoch == 0:
@@ -544,7 +545,7 @@ def pretrain():
             printw(f"\tTrain loss: {train_loss[-1]}")
             printw(f"\tTrain time: {end_time - start_time}")
             # LOGGING
-            if (epoch + 1) % 20 == 0:
+            if (epoch + 1) % 50 == 0:
                 torch.save(model.state_dict(), f'models/{filename}_epoch{epoch+1}.pt')
             # PLOTTING
             if (epoch + 1) % 10 == 0:
@@ -559,4 +560,4 @@ def pretrain():
                 plt.clf()
         torch.save(model.state_dict(), f'models/{filename}.pt')
         print("Done.")
-train()
+pretrain()

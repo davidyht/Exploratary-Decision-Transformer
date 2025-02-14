@@ -11,7 +11,7 @@ from envs import cg_bandit, bandit_env
 from utils import build_data_filename, build_merge_data_filename
 
 
-def rollin_bandit(env, cov, exp=True, orig=False):
+def rollin_bandit(env, cov, exp=False, orig=False):
     H = env.H
     opt_a_index = env.opt_a_index
     xs, us, xps, rs = [], [], [], []
@@ -197,6 +197,7 @@ def generate_bandit_histories(n_envs, dim, horizon, var, **kwargs):
     trajs = generate_bandit_histories_from_envs(envs, **kwargs)
     return trajs
 
+# random data collection
 def collect_data():
     if __name__ == '__main__':
         np.random.seed(42)
@@ -273,7 +274,7 @@ def collect_data():
             pickle.dump(eval_trajs, file)
         print(f"Evaluating data saved to {eval_filepath}.")
 
-
+# Collect data with both fix-arm and random-arm trajectories
 def collect_merge_data():
     if __name__ == '__main__':
         np.random.seed(0)

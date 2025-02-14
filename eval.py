@@ -124,10 +124,10 @@ if __name__ == '__main__':
         'horizon': H,
         'state_dim': state_dim,
         'action_dim': action_dim,
-        'n_layer': n_layer,
-        'n_embd': n_embd,
-        'n_head': n_head,
-        'dropout': dropout,
+        'n_layer': n_layer_pre_model,
+        'n_embd': n_embd_pre_model,
+        'n_head': n_head_pre_model,
+        'dropout': 0.0,
         'test': True,
     }
     config2 = {
@@ -238,9 +238,10 @@ if __name__ == '__main__':
         # plt.clf()
   
     elif envname == 'bandit':
+        simulated_var = 0.5
         config = {
             'horizon': horizon,
-            'var': 2.0,
+            'var': simulated_var,
             'n_eval': n_eval,
             # 'bandit_type': bandit_type,
         }
@@ -254,7 +255,7 @@ if __name__ == '__main__':
         means = 0.1 * np.random.randint(1, 9, size=(10,3))
         for j in range(10):
             eval_bandit.online_sample(
-                model=[model_act, model_ctx], model0=model_pre, means = means[j], horizon = horizon, var = 0.3)
+                model=[model_act, model_ctx], model0=model_pre, means = means[j], horizon = horizon, var = simulated_var)
             plt.savefig(f'figs/{evals_filename}/online_sample/{save_filename}_{means[j]}.png')
             plt.clf()
             plt.cla()
