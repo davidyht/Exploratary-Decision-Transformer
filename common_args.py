@@ -1,7 +1,7 @@
 
 def add_dataset_args(parser):
     parser.add_argument("--envs", type=int, required=False,
-                        default=100000, help="Envs")
+                        default=1000, help="Envs")
     parser.add_argument("--envs_eval", type=int, required=False,
                         default=1000, help="Eval Envs")
     parser.add_argument("--hists", type=int, required=False,
@@ -18,7 +18,7 @@ def add_dataset_args(parser):
     parser.add_argument("--var", type=float, required=False,
                         default=0.1, help="Bandit arm variance")
     parser.add_argument("--cov", type=float, required=False,
-                        default=0.1, help="Coverage of optimal arm")
+                        default=0.0, help="Coverage of optimal arm")
     parser.add_argument("--rdm_fix_ratio", type = list, required = False, default = [1.0, 0.0], help = "Ratio of random-arm and fixed-arm trajectories")
 
     parser.add_argument("--env", type=str, required=False, default = "bandit", help="Environment")
@@ -35,36 +35,32 @@ def add_dataset_args(parser):
 def add_model_args(parser):
     parser.add_argument("--embd", type=int, required=False,
                         default=32, help="Embedding size")
-    parser.add_argument("--embd_pre_model", type=int, required=False,
-                        default=256, help="Embedding size")
     parser.add_argument("--head", type=int, required=False,
-                        default=4, help="Number of heads")
-    parser.add_argument("--head_pre_model", type=int, required=False,
                         default=4, help="Number of heads")
     parser.add_argument("--layer", type=int, required=False,
                         default=4, help="Number of layers")
-    parser.add_argument("--layer_pre_model", type=int, required=False,
-                        default=6, help="Number of layers")
     parser.add_argument("--context_len", type=int, required=False, default = 100, help = "Context length of transformer")
     parser.add_argument("--lr", type=float, required=False,
                         default=1e-3, help="Learning Rate")
     parser.add_argument("--dropout", type=float,
                         required=False, default=0.0, help="Dropout")
+    parser.add_argument("--class", type=str, required=False,default='dpt', help="Model_Type")
     parser.add_argument('--shuffle', required = False, default=False, action='store_true')
     parser.add_argument('--intermediate_size', required = False, default=1024, help = "Intermediate size")
+    parser.add_argument("--exploration_rate", type=float, required=False,
+                        default=10, help="Exploration rate")
 
 
 def add_train_args(parser):
     parser.add_argument("--num_epochs", type=int, required=False,
                         default=200, help="Number of epochs")
-    parser.add_argument("--gamma", type=float, required=False,default=0.99, help="Discount factor")
-    parser.add_argument("--exploration_rate", type=float, required=False,
-                        default=500, help="Exploration rate")
+    parser.add_argument("--batch_size", type=int, required=False,
+                        default=128, help="Batch size")
 
 
 def add_eval_args(parser):
     parser.add_argument("--epoch", type=int, required=False,
-                        default=60, help="Epoch to evaluate")
+                        default=40, help="Epoch to evaluate")
     parser.add_argument("--test_cov", type=float,
                         required=False, default=-1.0,
                         help="Test coverage (for bandit)")

@@ -83,7 +83,7 @@ def online_sample(model0, model,  means, horizon, var):
 
 
 
-def online(eval_trajs, model, model0, n_eval, horizon, var, evals_filename, save_filename):
+def online(eval_trajs, model_list, n_eval, horizon, var, exploration_rate, evals_filename, save_filename):
     # Dictionary to store means of different policies
     all_means = {}
 
@@ -106,21 +106,24 @@ def online(eval_trajs, model, model0, n_eval, horizon, var, evals_filename, save
     cum_means = deploy_online_vec(vec_env, controller, horizon).T
     all_means['opt'] = cum_means
 
-    # Pretrained transformer policy
-    controller = BanditTransformerController(
-        model0,
-        sample=True,
-        batch_size=len(envs))
-    cum_means = deploy_online_vec(vec_env, controller, horizon).T
-    all_means['pretrained_trf'] = cum_means
+    for (model, model_class) in model_list:
+        if model_class == 'dpt':
+            controller = BanditTransformerController(
+                model,
+                sample=True,
+                batch_size=len(envs))
+            cum_means = deploy_online_vec(vec_env, controller, horizon).T
+            all_means['dpt'] = cum_means
+        
+        elif model_class == 'ppt':
+            controller = BanditMOTransformerController(
+                model,
+                sample=True,
+                batch_size=len(envs))
+            cum_means = deploy_online_vec(vec_env, controller, horizon).T
+            w = exploration_rate
+            all_means[f'ppt_{w}'] = cum_means
 
-    # Multi-output transformer policy
-    controller = BanditMOTransformerController(
-        model,
-        sample=True,
-        batch_size=len(envs))
-    cum_means = deploy_online_vec(vec_env, controller, horizon).T
-    all_means['multi-output_trf'] = cum_means
 
     # UCB policy
     controller = UCBPolicy(
