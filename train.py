@@ -18,6 +18,8 @@ from net import Transformer, Context_extractor, pretrain_transformer
 from utils import (
     build_data_filename,
     build_model_filename,
+    build_darkroom_data_filename,
+    build_darkroom_model_filename,
     convert_to_tensor
 )
 
@@ -353,7 +355,6 @@ def train_dpt():
 
     model = pretrain_transformer(config).to(device)
 
-    filename = build_model_filename(env, dpt_config)
     log_filename = f'figs/loss/{filename}_logs.txt'
     with open(log_filename, 'w') as f:
         pass
@@ -366,8 +367,23 @@ def train_dpt():
         # Write the same output to the log file
         with open(log_filename, 'a') as f:
             f.write(string + '\n')
-    path_train = build_data_filename(env, n_envs, dataset_config, mode=0)
-    path_test = build_data_filename(env, n_envs, dataset_config, mode=1)
+    if env == 'bandit':
+        path_train = build_data_filename(env, n_envs, dataset_config, mode=0)
+        path_test = build_data_filename(env, n_envs, dataset_config, mode=1)
+        filename = build_model_filename(env, dpt_config)
+    
+    elif env.startswith('darkroom'):
+        state_dim = 2
+        action_dim = 5
+
+        dataset_config.update({'rollin_type': 'uniform'})
+        path_train = build_darkroom_data_filename(
+            env, n_envs, dataset_config, mode=0)
+        path_test = build_darkroom_data_filename(
+            env, n_envs, dataset_config, mode=1)
+
+        filename = build_darkroom_model_filename(env, model_config)
+    
     train_dataset = Dataset(path = path_train, config = config)
     test_dataset = Dataset(path = path_test, config = config)
     train_loader = torch.utils.data.DataLoader(train_dataset, **params)

@@ -7,7 +7,7 @@ import gymnasium as gym
 import numpy as np
 
 import common_args
-from envs import bandit_env
+from envs import bandit_env, darkroom_env
 from utils import build_data_filename
 
 
@@ -50,6 +50,37 @@ def rollin_bandit(env, cov, exp=False, orig=False):
     
     return xs, us, xps, rs, c
 
+def rollin_mdp(env, rollin_type):
+    states = []
+    actions = []
+    next_states = []
+    rewards = []
+
+    state = env.reset()
+    for _ in range(env.horizon):
+        if rollin_type == 'uniform':
+            state = env.sample_state()
+            action = env.sample_action()
+        elif rollin_type == 'expert':
+            action = env.opt_action(state)
+        else:
+            raise NotImplementedError
+        next_state, reward = env.transit(state, action)
+
+        states.append(state)
+        actions.append(action)
+        next_states.append(next_state)
+        rewards.append(reward)
+        state = next_state
+
+    states = np.array(states)
+    actions = np.array(actions)
+    next_states = np.array(next_states)
+    rewards = np.array(rewards)
+
+    return states, actions, next_states, rewards
+
+
 def generate_bandit_histories_from_envs(envs, n_hists, n_samples, cov, type):
     trajs = []
     for env in envs:
@@ -78,10 +109,54 @@ def generate_bandit_histories_from_envs(envs, n_hists, n_samples, cov, type):
                 trajs.append(traj)
     return trajs
 
+def generate_mdp_histories_from_envs(envs, n_hists, n_samples, rollin_type):
+    trajs = []
+    for env in envs:
+        for j in range(n_hists):
+            (
+                context_states,
+                context_actions,
+                context_next_states,
+                context_rewards,
+            ) = rollin_mdp(env, rollin_type=rollin_type)
+            for k in range(n_samples):
+                query_state = env.sample_state()
+                optimal_action = env.opt_action(query_state)
+
+                traj = {
+                    'query_state': query_state,
+                    'optimal_action': optimal_action,
+                    'context_states': context_states,
+                    'context_actions': context_actions,
+                    'context_next_states': context_next_states,
+                    'context_rewards': context_rewards,
+                    'goal': env.goal,
+                }
+
+                # Add perm_index for DarkroomEnvPermuted
+                if hasattr(env, 'perm_index'):
+                    traj['perm_index'] = env.perm_index
+
+                trajs.append(traj)
+    return trajs
+
+
 def generate_bandit_histories(n_envs, dim, horizon, var, **kwargs):
     envs = [bandit_env.sample(dim, horizon, var)
             for _ in range(n_envs)]
     trajs = generate_bandit_histories_from_envs(envs, **kwargs)
+    return trajs
+
+def generate_darkroom_histories(goals, dim, horizon, **kwargs):
+    envs = [darkroom_env.DarkroomEnv(dim, goal, horizon) for goal in goals]
+    trajs = generate_mdp_histories_from_envs(envs, **kwargs)
+    return trajs
+
+
+def generate_darkroom_permuted_histories(indices, dim, horizon, **kwargs):
+    envs = [darkroom_env.DarkroomEnvPermuted(
+        dim, index, horizon) for index in indices]
+    trajs = generate_mdp_histories_from_envs(envs, **kwargs)
     return trajs
 
 # random data collection
