@@ -192,9 +192,6 @@ def train_ppt():
     optimizer_act = torch.optim.AdamW(model_act.parameters(), lr=lr, weight_decay=1e-4)
     optimizer_ctx = torch.optim.AdamW(model_ctx.parameters(), lr=lr, weight_decay=1e-4)
 
-
-    loss_fn1 = torch.nn.MSELoss(reduction='sum')
-    loss_fn2 = torch.nn.CrossEntropyLoss(reduction='sum')
     test_act_loss = []
     test_context_loss = []
     train_act_loss = []
@@ -262,10 +259,10 @@ def train_ppt():
                             # Load batch
             batch = {k: v.to(device) for k, v in batch.items()}
             true_context = batch['true_context'].clone().detach()
-            true_context = true_context.unsqueeze(-1).expand(params['batch_size'], horizon, true_context.shape[-1]) 
+            true_context = true_context.unsqueeze(1).expand(-1, horizon, -1) 
             context_copy = batch['context'].clone().detach()
             true_actions = batch['optimal_actions'].clone().detach()
-            true_actions = true_actions.unsqueeze(-1).expand(params['batch_size'], horizon, true_actions.shape[-1])
+            true_actions = true_actions.unsqueeze(1).expand(-1, horizon, -1)
 
             # Rollout context predictions and add to batch
             context_pred = model_ctx(batch)
@@ -281,7 +278,7 @@ def train_ppt():
             loss_ctx.backward()
             optimizer_act.step()
             optimizer_ctx.step()
-            epoch_train_loss += loss_act.item() / horizon
+
             epoch_train_act_loss += loss_act.item() / horizon
             epoch_train_context_loss += loss_ctx.item() / horizon
 
