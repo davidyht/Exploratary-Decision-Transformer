@@ -151,6 +151,21 @@ def load_args():
         config, model_config, dataset_config, params, env, num_epochs, w, n_envs, lr, horizon, dim, action_dim
     )
 
+def ppt_trainer(context_pred, action_pred, true_context, true_action, w):
+    assert context_pred.shape == true_context.shape, f"Shape mismatch: context_pred {context_pred.shape} vs true_context {true_context.shape}"
+    assert action_pred.shape == true_action.shape, f"Shape mismatch: action_pred {action_pred.shape} vs true_action {true_action.shape}"
+    assert len(action_pred.shape) == 3, f"Expected 3D tensor, got action_pred of shape {action_pred.shape}"
+    assert len(context_pred.shape) == 3, f"Expected 3D tensor, got context_pred of shape {context_pred.shape}"
+    
+    loss_ctx = torch.nn.functional.mse_loss(context_pred.reshape(-1, context_pred.shape[-1]), true_context.reshape(-1, context_pred.shape[-1]), reduction='sum')    
+    loss_act_ce = torch.nn.functional.cross_entropy(action_pred.reshape(-1, action_pred.shape[-1]), true_action.reshape(-1, action_pred.shape[-1]), reduction='sum')    
+    curiousity = (context_pred.detach() - true_context)**2
+    bonus_act_exp = torch.einsum('ijk ,ijk ->ij', curiousity, torch.nn.functional.softmax(action_pred, dim=-1))
+    loss_act = loss_act_ce - w * bonus_act_exp.sum()
+    return (loss_act, loss_ctx)
+
+
+
 def train_ppt():
     if not os.path.exists('figs/loss'):
         os.makedirs('figs/loss', exist_ok=True)
@@ -180,8 +195,6 @@ def train_ppt():
 
     loss_fn1 = torch.nn.MSELoss(reduction='sum')
     loss_fn2 = torch.nn.CrossEntropyLoss(reduction='sum')
-    test_loss = []
-    train_loss = []
     test_act_loss = []
     test_context_loss = []
     train_act_loss = []
@@ -207,49 +220,38 @@ def train_ppt():
         printw(f"Epoch: {epoch + 1}", log_filename)
         start_time = time.time()
         with torch.no_grad():
-            epoch_test_loss = 0.0
             epoch_test_act_loss = 0.0
             epoch_test_context_loss = 0.0
             for i, batch in enumerate(test_loader):
                 print(f"Batch {i} of {len(test_loader)}", end='\r')
 
+                # Load batch
                 batch = {k: v.to(device) for k, v in batch.items()}
-                means = batch['means'].clone().detach()
-                true_context = batch['context'].clone().detach()
+                true_context = batch['true_context'].clone().detach()
+                true_context = true_context.unsqueeze(1).expand(-1, horizon, -1)
                 context_copy = batch['context'].clone().detach()
-                true_actions = torch.zeros((params['batch_size'], horizon, action_dim)).to(device)
-                optimal_actions = batch['optimal_actions']
+                true_actions = batch['optimal_actions'].clone().detach()
+                true_actions = true_actions.unsqueeze(1).expand(-1, horizon, -1)
 
-                for i in range(params['batch_size']):
-                    if env == 'bandit':
-                        true_actions[i] = optimal_actions[i].expand(horizon, action_dim)
-                        true_context[i] = means[i, :].expand(horizon, action_dim)
-
+                # Rollout context predictions and add to batch
                 context_pred = model_ctx(batch)
                 batch['context'] = context_pred.detach()
+                # Predict actions
                 pred_actions = model_act(batch)
                 batch['context'] = context_copy
-                
-                true_actions = true_actions.reshape(-1, action_dim)
-                true_context = true_context.reshape(-1, action_dim)
-                pred_actions = pred_actions.reshape(-1, action_dim)
-                context_pred = context_pred.reshape(-1, action_dim)
-                loss_act = loss_fn2(pred_actions, true_actions)
-                loss_ctx = loss_fn1(context_pred, true_context)
-                loss = loss_act + loss_ctx
-                epoch_test_loss += loss.item() / horizon
+
+                (loss_act, loss_ctx) = ppt_trainer(context_pred, pred_actions, true_context, true_actions, w)
+
                 epoch_test_act_loss += loss_act.item() / horizon
                 epoch_test_context_loss += loss_ctx.item() / horizon
-        test_loss.append(epoch_test_loss / len(test_dataset))
+
         test_act_loss.append(epoch_test_act_loss / len(test_dataset))
         test_context_loss.append(epoch_test_context_loss / len(test_dataset))
         end_time = time.time()
-        printw(f"\tTest loss: {test_loss[-1]}", log_filename)
         printw(f"\t Test Action loss: {test_act_loss[-1]}", log_filename)
         printw(f"\t Test Context loss: {test_context_loss[-1]}", log_filename)
         printw(f"\tEval time: {end_time - start_time}", log_filename)
         # TRAINING
-        epoch_train_loss = 0.0
         epoch_train_act_loss = 0.0
         epoch_train_context_loss = 0.0
         start_time = time.time()
@@ -257,88 +259,58 @@ def train_ppt():
         
         for i, batch in enumerate(train_loader):
             print(f"Batch {i} of {len(train_loader)}", end='\r')
+                            # Load batch
             batch = {k: v.to(device) for k, v in batch.items()}
+            true_context = batch['true_context'].clone().detach()
+            true_context = true_context.unsqueeze(-1).expand(params['batch_size'], horizon, true_context.shape[-1]) 
+            context_copy = batch['context'].clone().detach()
+            true_actions = batch['optimal_actions'].clone().detach()
+            true_actions = true_actions.unsqueeze(-1).expand(params['batch_size'], horizon, true_actions.shape[-1])
 
-            true_actions = torch.zeros((params['batch_size'], horizon, action_dim)).to(device)
-            true_context = torch.zeros_like(true_actions).to(device)
-            means = batch['means']
-            optimal_actions = batch['optimal_actions']
-
-            if env == 'bandit':
-                for i in range(params['batch_size']):
-                    true_actions[i] = optimal_actions[i].expand(horizon, action_dim)
-                    true_context[i] = means[i, :].expand(horizon, action_dim)
-                
+            # Rollout context predictions and add to batch
             context_pred = model_ctx(batch)
-            batch['context'] = context_pred.clone().detach()
+            batch['context'] = context_pred.detach()
+            # Predict actions
             pred_actions = model_act(batch)
-
+            batch['context'] = context_copy
+            
             optimizer_act.zero_grad()
             optimizer_ctx.zero_grad()
-            loss_act_pred = loss_fn2(pred_actions.reshape(-1, action_dim), true_actions.reshape(-1, action_dim))
-
-            loss_ctx = loss_fn1(context_pred.reshape(-1, action_dim), true_context.reshape(-1, action_dim))
-
-            exploration_measure = 'mse'
-            if exploration_measure == 'kl':
-            
-                curiousity = (context_pred.detach() - true_context) ** 2
-                curiousity = torch.nn.functional.softmax(curiousity, dim = -1)
-                loss_act_exp = torch.nn.functional.kl_div(torch.log(torch.nn.functional.softmax(pred_actions, dim=-1).reshape(-1, action_dim)), curiousity.reshape(-1, action_dim), reduction='sum')
-
-            elif exploration_measure == 'mse':
-                curiousity = (context_pred.detach() - true_context) ** 2
-                # curiousity = torch.nn.functional.softmax(curiousity, dim = -1)
-                loss_act_exp = torch.einsum('ijk ,ijk ->ij', curiousity, torch.nn.functional.softmax(pred_actions, dim=-1))
-                loss_act_exp = loss_act_exp.sum()
-            
-            elif exploration_measure == 'l1':
-                curiousity = torch.abs(context_pred.detach() - true_context)
-                loss_act_exp = torch.einsum('ijk ,ijk ->ij', curiousity, torch.nn.functional.softmax(pred_actions, dim=-1))
-                loss_act_exp = loss_act_exp.sum()
-            
-            elif exploration_measure == 'cse':
-                curiousity = torch.abs(context_pred.detach() - true_context)
-                curiousity = torch.nn.functional.softmax(curiousity, dim = -1)
-                loss_act_exp = torch.nn.functional.cross_entropy(pred_actions, curiousity, reduction='sum')
-
-            else:
-                raise ValueError('Exploration measure not recognized')
-
-
-            loss_act = loss_act_pred +  w * loss_act_exp
-        
-            loss = loss_ctx + loss_act
-            loss.backward() 
-            epoch_train_loss += loss.item() / horizon
+            (loss_act, loss_ctx) = ppt_trainer(context_pred, pred_actions, true_context, true_actions, w)
+            loss_act.backward()
+            loss_ctx.backward()
+            optimizer_act.step()
+            optimizer_ctx.step()
+            epoch_train_loss += loss_act.item() / horizon
             epoch_train_act_loss += loss_act.item() / horizon
             epoch_train_context_loss += loss_ctx.item() / horizon
 
             optimizer_act.step()
             optimizer_ctx.step()
 
-
-        train_loss.append(epoch_train_loss / len(train_loader.dataset))
         train_act_loss.append(epoch_train_act_loss / len(train_loader.dataset))
         train_context_loss.append(epoch_train_context_loss / len(train_loader.dataset))
         end_time = time.time()
-        printw(f"\tTrain loss: {train_loss[-1]}", log_filename)
         printw(f"\t Train Action loss: {train_act_loss[-1]}", log_filename)
         printw(f"\t Train Context loss: {train_context_loss[-1]}", log_filename)
         printw(f"\tTrain time: {end_time - start_time}", log_filename)
         # LOGGING
-        if (epoch + 1) % 20 == 0:
+        if (epoch + 1) % 50 == 0:
             torch.save(model_ctx.state_dict(), f'models/{filename}_model_ctx_epoch{epoch+1}.pt')
             torch.save(model_act.state_dict(), f'models/{filename}_model_act_epoch{epoch+1}.pt')
 
         # PLOTTING
         if (epoch + 1) % 10 == 0:
-            printw(f"Test Loss:        {test_loss[-1]}", log_filename)
-            printw(f"Train Loss:       {train_loss[-1]}", log_filename)
+            printw(f"Test Action Loss:        {test_act_loss[-1]}", log_filename)
+            printw(f"Train Action Loss:       {train_act_loss[-1]}", log_filename)
+            printw(f"Test Context Loss:        {test_context_loss[-1]}", log_filename)
+            printw(f"Train Context Loss:       {train_context_loss[-1]}", log_filename)
             printw("\n", log_filename)
             plt.yscale('log')
-            plt.plot(train_loss[1:], label="Train Loss")
-            plt.plot(test_loss[1:], label="Test Loss")
+            plt.plot(train_act_loss[1:], label="Train Action Loss")
+            plt.plot(test_act_loss[1:], label="Test Action Loss")
+            plt.plot(train_context_loss[1:], label="Train Context Loss")
+            plt.plot(test_context_loss[1:], label="Test Context Loss")
             plt.legend()
             plt.savefig(f"figs/loss/{filename}_train_loss.png")
             plt.clf()
@@ -354,19 +326,7 @@ def train_dpt():
     config, dpt_config, dataset_config, params, env, num_epochs, w, n_envs, lr, horizon, dim, action_dim = load_args()
 
     model = pretrain_transformer(config).to(device)
-
-    log_filename = f'figs/loss/{filename}_logs.txt'
-    with open(log_filename, 'w') as f:
-        pass
-    def printw(string):
-        """
-        A drop-in replacement for print that also writes to a log file.
-        """
-        # Use the standard print function to print to the console
-        print(string)
-        # Write the same output to the log file
-        with open(log_filename, 'a') as f:
-            f.write(string + '\n')
+    
     if env == 'bandit':
         path_train = build_data_filename(env, n_envs, dataset_config, mode=0)
         path_test = build_data_filename(env, n_envs, dataset_config, mode=1)
@@ -383,6 +343,20 @@ def train_dpt():
             env, n_envs, dataset_config, mode=1)
 
         filename = build_darkroom_model_filename(env, model_config)
+
+    log_filename = f'figs/loss/{filename}_logs.txt'
+    with open(log_filename, 'w') as f:
+        pass
+    def printw(string):
+        """
+        A drop-in replacement for print that also writes to a log file.
+        """
+        # Use the standard print function to print to the console
+        print(string)
+        # Write the same output to the log file
+        with open(log_filename, 'a') as f:
+            f.write(string + '\n')
+
     
     train_dataset = Dataset(path = path_train, config = config)
     test_dataset = Dataset(path = path_test, config = config)
@@ -390,7 +364,6 @@ def train_dpt():
     test_loader = torch.utils.data.DataLoader(test_dataset, **params)
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
 
-    loss_fn = torch.nn.CrossEntropyLoss(reduction='sum')
     test_loss = []
     train_loss = []
 
@@ -415,18 +388,11 @@ def train_dpt():
                 print(f"Batch {i} of {len(test_loader)}", end='\r')
 
                 batch = {k: v.to(device) for k, v in batch.items()}
-                true_actions = torch.zeros((params['batch_size'], horizon, action_dim)).to(device)
-                optimal_actions = batch['optimal_actions']
-
-                if env == 'bandit':
-                    for i in range(params['batch_size']):
-                        true_actions[i] = optimal_actions[i].expand(horizon, action_dim)
+                true_actions = batch['optimal_actions'].unsqueeze(1).expand(-1, horizon, -1)
 
                 pred_actions = model(batch)
-                true_actions = true_actions.reshape(-1, action_dim)
-                pred_actions = pred_actions.reshape(-1, action_dim)
             
-                loss = loss_fn(pred_actions, true_actions)
+                loss = torch.nn.functional.cross_entropy(pred_actions(-1, action_dim), true_actions(-1, action_dim), reduction='sum')   
                 epoch_test_loss += loss.item() / horizon
         test_loss.append(epoch_test_loss / len(test_dataset))
         end_time = time.time()
@@ -437,28 +403,22 @@ def train_dpt():
         start_time = time.time()
         for i, batch in enumerate(train_loader):
             print(f"Batch {i} of {len(train_loader)}", end='\r')
-
             batch = {k: v.to(device) for k, v in batch.items()}
-            true_actions = torch.zeros((params['batch_size'], horizon, action_dim)).to(device)
-            optimal_actions = batch['optimal_actions']
-
-            for i in range(params['batch_size']):
-                true_actions[i] = optimal_actions[i].expand(horizon, action_dim)
+            true_actions = batch['optimal_actions'].unsqueeze(1).expand(-1, horizon, -1)
 
             pred_actions = model(batch)
-
+        
             optimizer.zero_grad()
-            loss = loss_fn(pred_actions.reshape(-1, action_dim), true_actions.reshape(-1, action_dim))
+            loss = torch.nn.functional.cross_entropy(pred_actions(-1, action_dim), true_actions(-1, action_dim), reduction='sum')   
             loss.backward()
             optimizer.step()
-
             epoch_train_loss += loss.item() / horizon
         train_loss.append(epoch_train_loss / len(train_dataset))
         end_time = time.time()
         printw(f"\tTrain loss: {train_loss[-1]}")
         printw(f"\tTrain time: {end_time - start_time}")
         # LOGGING
-        if (epoch + 1) % 50 == 0:
+        if (epoch + 1) % 100 == 0:
             torch.save(model.state_dict(), f'models/{filename}_epoch{epoch+1}.pt')
         # PLOTTING
         if (epoch + 1) % 10 == 0:
@@ -479,5 +439,5 @@ if __name__ == '__main__':
     model_config = load_args()[1]
     if model_config['class'] == 'dpt':
         train_dpt()
-    else:    
+    elif model_config['class'] == 'ppt':    
         train_ppt()

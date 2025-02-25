@@ -1,7 +1,7 @@
 
 def add_dataset_args(parser):
     parser.add_argument("--envs", type=int, required=False,
-                        default=1000, help="Envs")
+                        default=100000, help="Envs")
     parser.add_argument("--envs_eval", type=int, required=False,
                         default=1000, help="Eval Envs")
     parser.add_argument("--hists", type=int, required=False,
@@ -16,7 +16,7 @@ def add_dataset_args(parser):
                         default=2, help="Linear feature dimension")
 
     parser.add_argument("--var", type=float, required=False,
-                        default=0.1, help="Bandit arm variance")
+                        default=0.5, help="Bandit arm variance")
     parser.add_argument("--cov", type=float, required=False,
                         default=0.0, help="Coverage of optimal arm")
     parser.add_argument("--rdm_fix_ratio", type = list, required = False, default = [1.0, 0.0], help = "Ratio of random-arm and fixed-arm trajectories")
@@ -44,23 +44,23 @@ def add_model_args(parser):
                         default=1e-3, help="Learning Rate")
     parser.add_argument("--dropout", type=float,
                         required=False, default=0.0, help="Dropout")
-    parser.add_argument("--class", type=str, required=False,default='dpt', help="Model_Type")
+    parser.add_argument("--class", type=str, required=False,default='ppt', help="Model_Type")
     parser.add_argument('--shuffle', required = False, default=False, action='store_true')
     parser.add_argument('--intermediate_size', required = False, default=1024, help = "Intermediate size")
     parser.add_argument("--exploration_rate", type=float, required=False,
-                        default=10, help="Exploration rate")
+                        default=1000, help="Exploration rate")
 
 
 def add_train_args(parser):
     parser.add_argument("--num_epochs", type=int, required=False,
                         default=200, help="Number of epochs")
     parser.add_argument("--batch_size", type=int, required=False,
-                        default=128, help="Batch size")
+                        default=64, help="Batch size")
 
 
 def add_eval_args(parser):
     parser.add_argument("--epoch", type=int, required=False,
-                        default=40, help="Epoch to evaluate")
+                        default=100, help="Epoch to evaluate")
     parser.add_argument("--test_cov", type=float,
                         required=False, default=-1.0,
                         help="Test coverage (for bandit)")

@@ -8,7 +8,7 @@ import numpy as np
 
 import common_args
 from envs import bandit_env, darkroom_env
-from utils import build_data_filename
+from utils import build_data_filename, build_darkroom_data_filename
 
 
 def rollin_bandit(env, cov, exp=False, orig=False):
@@ -77,8 +77,9 @@ def rollin_mdp(env, rollin_type):
     actions = np.array(actions)
     next_states = np.array(next_states)
     rewards = np.array(rewards)
+    contexts = np.zeros((env.horizon, env.state_dim * env.dim)) # Context prediction is not provided in offline dataset.
 
-    return states, actions, next_states, rewards
+    return states, actions, next_states, rewards, contexts
 
 
 def generate_bandit_histories_from_envs(envs, n_hists, n_samples, cov, type):
@@ -104,7 +105,7 @@ def generate_bandit_histories_from_envs(envs, n_hists, n_samples, cov, type):
                     'context_next_states': context_next_states,
                     'context_rewards': context_rewards,
                     'context': context,
-                    'means': env.means,
+                    'true_context': env.means,
                 }
                 trajs.append(traj)
     return trajs
@@ -118,6 +119,7 @@ def generate_mdp_histories_from_envs(envs, n_hists, n_samples, rollin_type):
                 context_actions,
                 context_next_states,
                 context_rewards,
+                contexts,
             ) = rollin_mdp(env, rollin_type=rollin_type)
             for k in range(n_samples):
                 query_state = env.sample_state()
@@ -130,7 +132,9 @@ def generate_mdp_histories_from_envs(envs, n_hists, n_samples, rollin_type):
                     'context_actions': context_actions,
                     'context_next_states': context_next_states,
                     'context_rewards': context_rewards,
-                    'goal': env.goal,
+                    'context': contexts,
+                    'true_context': env.means,
+                    # 'goal': env.goal,
                 }
 
                 # Add perm_index for DarkroomEnvPermuted
@@ -206,6 +210,16 @@ def collect_data():
             trajs2 = generate_bandit_histories(n_envs_ratio2, **config)
 
             config.update({'cov': cov, 'type': 'uniform'})
+        
+        elif env == "darkroom":
+            goals = [np.array([dim - 1, dim - 1]) for _ in range(n_envs)]
+            config.update({'dim': dim, 'horizon': horizon, 'rollin_type': 'uniform'})
+            trajs1 = generate_darkroom_histories(goals[:n_envs_ratio1], **config)
+            trajs = generate_darkroom_histories(goals[n_envs_ratio1:], **config)
+            config.update({'rollin_type': 'expert'})
+            trajs2 = generate_darkroom_histories(goals[n_envs_ratio1:], **config)
+
+            config.update({'rollin_type': 'uniform'})
 
         all_trajs.extend(trajs2)
         all_trajs.extend(trajs1)
@@ -216,17 +230,24 @@ def collect_data():
         train_trajs = all_trajs[:n_train_envs]
         test_trajs = all_trajs[n_train_envs:]
 
-        train_filepath = build_data_filename(env, n_envs, config, mode=0)
+        if env == 'bandit':
+            train_filepath = build_data_filename(env, n_envs, config, mode=0)
+            test_filepath = build_data_filename(env, n_envs, config, mode=1)
+            eval_filepath = build_data_filename(env, n_eval_envs, config, mode=2)
+        
+        elif env == 'darkroom':
+            train_filepath = build_darkroom_data_filename(env, n_envs, config, mode=0)
+            test_filepath = build_darkroom_data_filename(env, n_envs, config, mode=1)
+            eval_filepath = build_darkroom_data_filename(env, n_eval_envs, config, mode=2)
+
         with open(train_filepath, 'wb') as file:
             pickle.dump(train_trajs, file)
         print(f"Training data saved to {train_filepath}.")
 
-        test_filepath = build_data_filename(env, n_envs, config, mode=1)
         with open(test_filepath, 'wb') as file:
             pickle.dump(test_trajs, file)
         print(f"Testing data saved to {test_filepath}.")
 
-        eval_filepath = build_data_filename(env, n_eval_envs, config, mode=2)
         with open(eval_filepath, 'wb') as file:
             pickle.dump(eval_trajs, file)
         print(f"Evaluating data saved to {eval_filepath}.")

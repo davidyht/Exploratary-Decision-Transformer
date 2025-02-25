@@ -201,7 +201,7 @@ if __name__ == '__main__':
 
     # Online and offline evaluation.
     if envname == 'bandit':
-        simulated_var = 0.5
+        simulated_var = 1.0
         config = {
             'horizon': horizon,
             'var': simulated_var,

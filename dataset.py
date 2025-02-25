@@ -58,7 +58,7 @@ class Dataset(torch.utils.data.Dataset):
         context = []
         query_states = []
         optimal_actions = []
-        means = []
+        true_context = []
 
         for traj in self.trajs:
             context_states.append(traj['context_states'])
@@ -69,7 +69,7 @@ class Dataset(torch.utils.data.Dataset):
 
             query_states.append(traj['query_state'])
             optimal_actions.append(traj['optimal_action'])
-            means.append(traj['means'])
+            true_context.append(traj['true_context'])
 
         context_states = np.array(context_states)
         context_actions = np.array(context_actions)
@@ -81,7 +81,7 @@ class Dataset(torch.utils.data.Dataset):
             context_rewards = context_rewards[:, :, None]
         query_states = np.array(query_states)
         optimal_actions = np.array(optimal_actions)
-        means = np.array(means)
+        true_context = np.array(true_context)
 
         self.dataset = {
             'query_states': convert_to_tensor(query_states, store_gpu=self.store_gpu),
@@ -91,7 +91,7 @@ class Dataset(torch.utils.data.Dataset):
             'context_next_states': convert_to_tensor(context_next_states, store_gpu=self.store_gpu),
             'context_rewards': convert_to_tensor(context_rewards, store_gpu=self.store_gpu),
             'context': convert_to_tensor(context, store_gpu=self.store_gpu),
-            'means': convert_to_tensor(means, store_gpu=self.store_gpu),
+            'true_context': convert_to_tensor(true_context, store_gpu=self.store_gpu),
         }
 
     def __len__(self):
@@ -108,7 +108,7 @@ class Dataset(torch.utils.data.Dataset):
             'context': self.dataset['context'][index],
             'query_states': self.dataset['query_states'][index],
             'optimal_actions': self.dataset['optimal_actions'][index],
-            'means': self.dataset['means'][index],
+            'true_context': self.dataset['true_context'][index],
             'zeros': self.zeros,
         }
 
@@ -119,7 +119,7 @@ class Dataset(torch.utils.data.Dataset):
             res['context_next_states'] = res['context_next_states'][perm]
             res['context_rewards'] = res['context_rewards'][perm]
             res['context'] = res['context'][perm]
-            res['means'] = res['means'][perm]
+            res['true_context'] = res['true_context'][perm]
 
         return res
 
