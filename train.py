@@ -274,6 +274,11 @@ def train_ppt():
         epoch_train_context_loss = 0.0
         start_time = time.time()
 
+        # Early stopping parameters
+        patience = 5  # Number of epochs to wait before stopping
+        best_loss = float('inf')
+        patience_counter = 0
+
         
         for i, batch in enumerate(train_loader):
             print(f"Batch {i} of {len(train_loader)}", end='\r')
@@ -339,6 +344,21 @@ def train_ppt():
             plt.legend()
             plt.savefig(f"figs/loss/{filename}_train_loss.png")
             plt.clf()
+                
+        # Early stopping logic
+        if test_act_loss[-1] < best_loss:
+            best_loss = test_act_loss[-1]
+            patience_counter = 0  # Reset patience counter
+
+        else:
+            patience_counter += 1
+            printw(f"\tTest loss increased. Patience counter: {patience_counter}")
+            if patience_counter >= patience:
+                printw("Early stopping triggered. Training halted.")
+                break
+        
+    torch.save(model_ctx.state_dict(), f'models/{filename}_model_ctx.pt')
+    torch.save(model_act.state_dict(), f'models/{filename}_model_act.pt')
     print("Done.")
 
 def train_dpt():
@@ -466,8 +486,6 @@ def train_dpt():
         if test_loss[-1] < best_loss:
             best_loss = test_loss[-1]
             patience_counter = 0  # Reset patience counter
-            # Save the best model
-            torch.save(model.state_dict(), f'models/{filename}_best.pt')
         else:
             patience_counter += 1
             printw(f"\tTest loss increased. Patience counter: {patience_counter}")
