@@ -4,7 +4,7 @@ import torch
 import seaborn as sns
 from IPython import embed
 from evals.eval_base import deploy_online, deploy_online_vec
-from envs.bandit_env import BanditEnvVec, BanditEnv
+from envs.bandit_env import BanditEnvVec, BanditEnv, HardBanditEnv, HardBanditEnvVec
 from utils import convert_to_tensor
 
 import matplotlib.pyplot as plt
@@ -21,83 +21,132 @@ from ctrls.ctrl_bandit import (
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-def online_sample(model0, model,  means, horizon, var):
+def online_sample(model_list, means, horizon, var, type = 'easy'):
     all_means = {}
-    env = BanditEnv(means, horizon, var=var)
-
+    all_context = {}
+    if type == 'easy':
+        env = BanditEnv(means, horizon, var=var)
+    elif type == 'hard':
+        env = HardBanditEnv(means, horizon, var=var)
+    true_context = np.array(means)
+    true_context = true_context.reshape(1, -1)
+    
+    # Optimal policy
     controller = OptPolicy(
-        env,
+        env = env,
         batch_size=1)
     cum_means = deploy_online(env, controller, horizon).T
     all_means['opt'] = cum_means
+    if type == 'hard':
+        env.reset_optimal_picks()
 
-    env.reset()
-    controller = BanditTransformerController(
-        model0,
-        sample=True,
-        batch_size=1)
-    cum_means = deploy_online(env, controller, horizon).T
-    all_means['trf'] = cum_means
+    for (model, model_class) in model_list:
+        if model_class == 'dpt':
+            controller = BanditTransformerController(
+                model,
+                sample=True,
+                batch_size=1)
+            cum_means = deploy_online(env, controller, horizon).T
+            all_means['dpt'] = cum_means
+            if type == 'hard':
+                env.reset_optimal_picks()
+        
+        elif model_class.startswith('ppt'):
+            controller = BanditMOTransformerController(
+                model,
+                sample=True,
+                batch_size=1)
+            cum_means, meta = deploy_online(env, controller, horizon, include_meta=True)
+            cum_means = cum_means.T
+            context = meta['context']
+            context = np.array(context)
+            context_loss = np.zeros(horizon)
+            
+            for i in range(horizon):
+                context_loss[i] = np.sum((context[:, i].squeeze() - true_context)**2)
 
-    env.reset()
-    controller = BanditMOTransformerController(
-        model,
-        sample=True,
-        batch_size=1
-    )
-    cum_means = deploy_online(env, controller, horizon).T
-    all_means['multi-output_trf'] = cum_means
+            all_means[model_class] = cum_means
+            all_context[model_class] = context_loss
+            if type == 'hard':
+                env.reset_optimal_picks()
 
-    env.reset()
+    # UCB policy
     controller = UCBPolicy(
         env,
         const=1.0,
         batch_size=1)
     cum_means = deploy_online(env, controller, horizon).T
-    all_means['UCB'] = cum_means
+    all_means['UCB1.0'] = cum_means
+    if type == 'hard':
+        env.reset_optimal_picks()
+
+    # Convert to numpy arrays
     all_means = {k: np.array(v) for k, v in all_means.items()}
+    
+    all_means_diff = {k: all_means['opt'] - v for k, v in all_means.items()}
 
-    # Plot rewards of opt and lnr in the same plot
-    fig, axs = plt.subplots(1, 2, figsize=(20, 6))  # Create two subplots side by side
+    # Calculate cumulative regret
+    cumulative_regret = {k: np.cumsum(v) for k, v in all_means_diff.items()}
+    regret = {k: np.sum(v) for k, v in all_means_diff.items()}
 
-    # Plot rewards
-    axs[0].plot(np.arange(horizon), all_means['opt'], '-', label='opt', color='black', alpha=1.0)
-    axs[0].plot(np.arange(horizon), all_means['trf'], 'o', label='pretrained transformer', color='blue', alpha=0.4)
-    axs[0].plot(np.arange(horizon), all_means['multi-output_trf'], 'o', label='multi-output transformer', color='green', alpha=0.4)
-    # axs[0].plot(np.arange(horizon), all_means['UCB'], '+', label='UCB', color='red', alpha=1.0)
-    axs[0].set_xlabel('Time Steps')
-    axs[0].set_ylabel('Rewards')
-    axs[0].set_title('Rewards Comparison')
-    axs[0].legend()
+    # Plotting
+    fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(21, 6))
 
-    # Calculate and plot regrets
-    regrets = {k: all_means['opt'] - v for k, v in all_means.items() if k != 'opt'}
-    # Calculate and plot cumulative regrets
-    cumulative_regrets = {k: np.cumsum(v) for k, v in regrets.items()}
-    for k, v in cumulative_regrets.items():
-        axs[1].plot(np.arange(horizon), v, '-', label=k)
-    axs[1].set_xlabel('Time Steps')
-    axs[1].set_ylabel('Cumulative Regret')
-    axs[1].set_title('Cumulative Regret Comparison')
-    axs[1].legend()
+    # Plot suboptimality
+    for key in all_means.keys():
+        if key != 'opt' and key != 'UCB1.0' and key != 'dpt':
+            ax1.scatter(np.arange(horizon), all_means[key], label=key, alpha=0.5)
+
+    ax1.set_yscale('log')
+    ax1.set_xlabel('Time steps')
+    ax1.set_ylabel('Suboptimality')
+    ax1.set_title('Online Evaluation')
+    ax1.legend()
+
+    # Plot cumulative regret
+    for key in cumulative_regret.keys():
+        if key != 'opt':
+            ax2.plot(cumulative_regret[key], label=key)
+
+    ax2.set_xlabel('Time Steps')
+    ax2.set_ylabel('Cumulative Regret')
+    ax2.set_title('Regret Over Time')
+    ax2.legend()
+
+    # plot context loss
+    for key in all_context.keys():
+        ax3.plot(all_context[key], label=key)
+    ax3.set_xlabel('Time Steps')
+    ax3.set_ylabel('Context Loss')
+    ax3.set_title('Context Loss')
+    ax3.legend()
 
 
-
-def online(eval_trajs, model_list, n_eval, horizon, var, exploration_rate, evals_filename, save_filename):
+def online(eval_trajs, model_list, n_eval, horizon, var, type = 'easy'):
     # Dictionary to store means of different policies
     all_means = {}
+    all_context = {}
 
     envs = []
+    true_context = []
     for i_eval in range(n_eval):
         traj = eval_trajs[i_eval]
         means = traj['true_context']
+        true_context.append(means)
 
         # Create bandit environment
-        env = BanditEnv(means, horizon, var=var)
-        if np.all((env.means >= 0.15) & (env.means <= 0.85)):
-            envs.append(env)
+        if type == 'easy':
+            env = BanditEnv(means, horizon, var=var)    
+        elif type == 'hard':
+            env = HardBanditEnv(means, horizon, var=var)
+        
+        envs.append(env)
 
-    vec_env = BanditEnvVec(envs)
+    if type == 'easy':
+        vec_env = BanditEnvVec(envs)
+    elif type == 'hard':
+        vec_env = HardBanditEnvVec(envs)
+    true_context = np.array(true_context)
 
     # Optimal policy
     controller = OptPolicy(
@@ -105,6 +154,8 @@ def online(eval_trajs, model_list, n_eval, horizon, var, exploration_rate, evals
         batch_size=len(envs))
     cum_means = deploy_online_vec(vec_env, controller, horizon).T
     all_means['opt'] = cum_means
+    if type == 'hard':
+        vec_env.reset_optimal_picks()
 
     for (model, model_class) in model_list:
         if model_class == 'dpt':
@@ -114,15 +165,25 @@ def online(eval_trajs, model_list, n_eval, horizon, var, exploration_rate, evals
                 batch_size=len(envs))
             cum_means = deploy_online_vec(vec_env, controller, horizon).T
             all_means['dpt'] = cum_means
-        
-        elif model_class == 'ppt':
+            if type == 'hard':
+                vec_env.reset_optimal_picks()        
+        elif model_class.startswith('ppt'):
             controller = BanditMOTransformerController(
                 model,
                 sample=True,
                 batch_size=len(envs))
-            cum_means = deploy_online_vec(vec_env, controller, horizon).T
-            w = exploration_rate
-            all_means[f'ppt_{w}'] = cum_means
+            cum_means, meta = deploy_online_vec(vec_env, controller, horizon, include_meta=True)
+            cum_means = cum_means.T
+            context = meta['context']
+            context_loss = np.zeros(horizon)
+            for i in range(horizon):
+                batch_mean_loss = np.mean((context[:, i] - true_context)**2, axis=0)
+                context_loss[i] = np.sum(batch_mean_loss)
+
+            all_means[model_class] = cum_means
+            all_context[model_class] = context_loss
+            if type == 'hard':
+                vec_env.reset_optimal_picks()
 
 
     # UCB policy
@@ -132,6 +193,8 @@ def online(eval_trajs, model_list, n_eval, horizon, var, exploration_rate, evals
         batch_size=len(envs))
     cum_means = deploy_online_vec(vec_env, controller, horizon).T
     all_means['UCB1.0'] = cum_means
+    if type == 'hard':
+        vec_env.reset_optimal_picks
 
     # Convert to numpy arrays
     all_means = {k: np.array(v) for k, v in all_means.items()}
@@ -155,20 +218,16 @@ def online(eval_trajs, model_list, n_eval, horizon, var, exploration_rate, evals
     regret_sems = {k: scipy.stats.sem(v, axis=0) for k, v in cumulative_regret.items()}
 
     # Plotting
-    fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(21, 6))
+    fig, (ax1, ax2, ax3, ax4) = plt.subplots(1, 4, figsize=(28, 6), constrained_layout=True)
 
     # Plot suboptimality
     for key in means.keys():
-        if key == 'opt':
-            ax1.plot(means[key], label=key, linestyle='--',
-                     color='black', linewidth=2)
-            ax1.fill_between(np.arange(horizon), means[key] - sems[key], means[key] + sems[key], alpha=0.2, color='black')
-        else:
+        if key != 'opt':
             ax1.plot(means[key], label=key)
             ax1.fill_between(np.arange(horizon), means[key] - sems[key], means[key] + sems[key], alpha=0.2)
 
     ax1.set_yscale('log')
-    ax1.set_xlabel('Episodes')
+    ax1.set_xlabel('Time Steps')
     ax1.set_ylabel('Suboptimality')
     ax1.set_title('Online Evaluation')
     ax1.legend()
@@ -179,7 +238,7 @@ def online(eval_trajs, model_list, n_eval, horizon, var, exploration_rate, evals
             ax2.plot(regret_means[key], label=key)
             ax2.fill_between(np.arange(horizon), regret_means[key] - regret_sems[key], regret_means[key] + regret_sems[key], alpha=0.2)
 
-    ax2.set_xlabel('Episodes')
+    ax2.set_xlabel('Time Steps')
     ax2.set_ylabel('Cumulative Regret')
     ax2.set_title('Regret Over Time')
     ax2.legend()
@@ -187,12 +246,27 @@ def online(eval_trajs, model_list, n_eval, horizon, var, exploration_rate, evals
     # plot regret distribution
     for key in regret.keys():
         if key != 'opt' and key != 'UCB1.0':
-            ax3.hist(regret[key], bins=20, alpha=0.5, label=key)
-            # sns.kdeplot(regret[key], ax=ax3, label=key, shade=True, alpha=0.5)
+            # ax3.hist(regret[key], bins=20, alpha=0.5, label=key)
+            sns.kdeplot(regret[key], ax=ax3, label=key, shade=True, alpha=0.5)
     ax3.set_xlabel('Regret')
     ax3.set_ylabel('Frequency')
     ax3.set_title('Regret Distribution')
     ax3.legend()
+
+    # plot context loss
+    for key in all_context.keys():
+        ax4.plot(all_context[key], label=key)
+    ax4.set_xlabel('Time Steps')
+    ax4.set_ylabel('Context Loss')
+    ax4.set_title('Context Loss')
+    ax4.legend()
+
+    regret = {k: v for k, v in regret.items() if k != 'UCB1.0'}
+    regret_avg = {k: np.mean(v) for k, v in regret.items()}
+
+    return regret_avg
+
+
 
 
 def offline(eval_trajs, model, n_eval, horizon, var, bandit_type):

@@ -9,6 +9,7 @@ import time
 
 import matplotlib.pyplot as plt
 import torch
+from torch.optim.lr_scheduler import LambdaLR
 
 import numpy as np
 import common_args
@@ -34,6 +35,22 @@ def printw(string, log_filename):
     # Write the same output to the log file
     with open(log_filename, 'a') as f:
         f.write(string + '\n')
+        
+
+def wsd_lr_scheduler(optimizer, warmup_steps, total_steps, base_lr):
+    def lr_lambda(current_step):
+        if current_step < warmup_steps:
+            # Warmup阶段
+            return current_step / warmup_steps
+        elif current_step < total_steps:
+            # Step阶段（保持恒定学习率）
+            return 1.0
+        else:
+            # Decay阶段（指数衰减）
+            decay_steps = total_steps - warmup_steps
+            return (0.1 ** ((current_step - warmup_steps) / decay_steps))
+    
+    return LambdaLR(optimizer, lr_lambda)
 
 def load_checkpoints(model, filename):
     # Check if there are existing model checkpoints
@@ -75,6 +92,7 @@ def load_args():
     state_dim = 1
     action_dim = dim
     model_class = args['class']
+    context_type = args['context_type']
     n_embd = args['embd']
     n_head = args['head']
     n_layer = args['layer']
@@ -148,7 +166,7 @@ def load_args():
     }
 
     return (
-        config, model_config, dataset_config, params, env, num_epochs, w, n_envs, lr, horizon, dim, action_dim
+        config, model_config, dataset_config, params, env, context_type, num_epochs, w, n_envs, lr, horizon, dim, action_dim
     )
 
 def ppt_trainer(context_pred, action_pred, true_context, true_action, w):
@@ -172,7 +190,7 @@ def train_ppt():
     if not os.path.exists('models'):
         os.makedirs('models', exist_ok=True)
     
-    config, model_config, dataset_config, params, env, num_epochs, w, n_envs, lr, horizon, dim, action_dim = load_args()
+    config, model_config, dataset_config, params, env, context_type, num_epochs, w, n_envs, lr, horizon, dim, action_dim = load_args()
 
     model_ctx = Context_extractor(config).to(device)
     model_act = Transformer(config).to(device)
@@ -212,6 +230,8 @@ def train_ppt():
     
     train_loader = train_loader0
 
+    
+
     for epoch in range(start_epoch, num_epochs):
         # EVALUATION
         printw(f"Epoch: {epoch + 1}", log_filename)
@@ -224,8 +244,9 @@ def train_ppt():
 
                 # Load batch
                 batch = {k: v.to(device) for k, v in batch.items()}
-                true_context = batch['true_context'].clone().detach()
-                true_context = true_context.unsqueeze(1).expand(-1, horizon, -1)
+                # true_context = batch['true_context'].clone().detach()
+                # true_context = true_context.unsqueeze(1).expand(-1, horizon, -1)
+                true_context = batch['context'].clone().detach()
                 context_copy = batch['context'].clone().detach()
                 true_actions = batch['optimal_actions'].clone().detach()
                 true_actions = true_actions.unsqueeze(1).expand(-1, horizon, -1)
@@ -258,15 +279,22 @@ def train_ppt():
             print(f"Batch {i} of {len(train_loader)}", end='\r')
                             # Load batch
             batch = {k: v.to(device) for k, v in batch.items()}
-            true_context = batch['true_context'].clone().detach()
-            true_context = true_context.unsqueeze(1).expand(-1, horizon, -1) 
+
             context_copy = batch['context'].clone().detach()
+
+            if context_type == 'ground_truth':
+                true_context = batch['true_context'].clone().detach()
+                true_context = true_context.unsqueeze(1).expand(-1, horizon, -1) 
+            else:
+                true_context = batch['context'].clone().detach()[:, -1]
+                true_context = true_context.unsqueeze(1).expand(-1, horizon, -1)
+
             true_actions = batch['optimal_actions'].clone().detach()
             true_actions = true_actions.unsqueeze(1).expand(-1, horizon, -1)
 
             # Rollout context predictions and add to batch
             context_pred = model_ctx(batch)
-            batch['context'] = context_pred.detach()
+            batch['context']= context_pred.detach()
             # Predict actions
             pred_actions = model_act(batch)
             batch['context'] = context_copy
@@ -292,7 +320,7 @@ def train_ppt():
         printw(f"\t Train Context loss: {train_context_loss[-1]}", log_filename)
         printw(f"\tTrain time: {end_time - start_time}", log_filename)
         # LOGGING
-        if (epoch + 1) % 50 == 0:
+        if (epoch + 1) % 100 == 0:
             torch.save(model_ctx.state_dict(), f'models/{filename}_model_ctx_epoch{epoch+1}.pt')
             torch.save(model_act.state_dict(), f'models/{filename}_model_act_epoch{epoch+1}.pt')
 
@@ -320,7 +348,7 @@ def train_dpt():
     if not os.path.exists('models'):
         os.makedirs('models', exist_ok=True)
     
-    config, dpt_config, dataset_config, params, env, num_epochs, w, n_envs, lr, horizon, dim, action_dim = load_args()
+    config, dpt_config, dataset_config, params, env, context_type, num_epochs, w, n_envs, lr, horizon, dim, action_dim = load_args()
 
     model = pretrain_transformer(config).to(device)
     
@@ -375,6 +403,11 @@ def train_dpt():
     else:
         printw(f"Starting from epoch {start_epoch}")
 
+    # Early stopping parameters
+    patience = 5  # Number of epochs to wait before stopping
+    best_loss = float('inf')
+    patience_counter = 0
+
     for epoch in range(start_epoch, num_epochs):
         # EVALUATION
         printw(f"Epoch: {epoch + 1}")
@@ -389,7 +422,7 @@ def train_dpt():
 
                 pred_actions = model(batch)
             
-                loss = torch.nn.functional.cross_entropy(pred_actions(-1, action_dim), true_actions(-1, action_dim), reduction='sum')   
+                loss = torch.nn.functional.cross_entropy(pred_actions.reshape(-1, action_dim), true_actions.reshape(-1, action_dim), reduction='sum')   
                 epoch_test_loss += loss.item() / horizon
         test_loss.append(epoch_test_loss / len(test_dataset))
         end_time = time.time()
@@ -406,7 +439,7 @@ def train_dpt():
             pred_actions = model(batch)
         
             optimizer.zero_grad()
-            loss = torch.nn.functional.cross_entropy(pred_actions(-1, action_dim), true_actions(-1, action_dim), reduction='sum')   
+            loss = torch.nn.functional.cross_entropy(pred_actions.reshape(-1, action_dim), true_actions.reshape(-1, action_dim), reduction='sum')   
             loss.backward()
             optimizer.step()
             epoch_train_loss += loss.item() / horizon
@@ -415,7 +448,7 @@ def train_dpt():
         printw(f"\tTrain loss: {train_loss[-1]}")
         printw(f"\tTrain time: {end_time - start_time}")
         # LOGGING
-        if (epoch + 1) % 100 == 0:
+        if (epoch + 1) % 5 == 0:
             torch.save(model.state_dict(), f'models/{filename}_epoch{epoch+1}.pt')
         # PLOTTING
         if (epoch + 1) % 10 == 0:
@@ -428,6 +461,20 @@ def train_dpt():
             plt.legend()
             plt.savefig(f"figs/loss/{filename}_train_loss.png")
             plt.clf()
+        
+        # Early stopping logic
+        if test_loss[-1] < best_loss:
+            best_loss = test_loss[-1]
+            patience_counter = 0  # Reset patience counter
+            # Save the best model
+            torch.save(model.state_dict(), f'models/{filename}_best.pt')
+        else:
+            patience_counter += 1
+            printw(f"\tTest loss increased. Patience counter: {patience_counter}")
+            if patience_counter >= patience:
+                printw("Early stopping triggered. Training halted.")
+                torch.save(model.state_dict(), f'models/{filename}.pt')
+                break
     torch.save(model.state_dict(), f'models/{filename}.pt')
     print("Done.")
 

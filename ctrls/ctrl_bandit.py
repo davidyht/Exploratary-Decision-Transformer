@@ -271,3 +271,55 @@ class BanditTransformerController(Controller):
         actions = np.zeros((self.batch_size, self.du))
         actions[np.arange(self.batch_size), action_indices] = 1.0
         return actions, c
+    
+
+
+class TransformerContextController(Controller):
+    def __init__(self, model, batch_size=1):
+        self.model = model
+        self.du = model.config['action_dim']
+        self.dx = model.config['state_dim']
+        self.H = model.horizon
+        self.batch_size = batch_size
+        self.zeros = torch.zeros(batch_size, self.dx**2 + self.du + 1).float().to(device)
+
+    def set_env(self, env):
+        return
+
+    def set_batch_numpy_vec(self, batch):
+        # Convert each element of the batch to a torch tensor
+        new_batch = {}
+        for key in batch.keys():
+            new_batch[key] = torch.tensor(batch[key]).float().to(device)
+        self.set_batch(new_batch)
+
+    def act(self, x):
+        self.batch['zeros'] = self.zeros
+
+        states = torch.tensor(x)[None, :].float().to(device)
+        self.batch['query_states'] = states
+
+        context = self.model(self.batch)
+        context = context.cpu().detach().numpy()[0]
+        action_index = np.argmax(context)
+
+        a = np.zeros(self.du)
+        a[action_index] = 1.0
+        return a, context
+
+    def act_numpy_vec(self, x):
+        self.batch['zeros'] = self.zeros
+
+        states = torch.tensor(np.array(x))
+        if self.batch_size == 1:
+            states = states[None, :]
+        states = states.float().to(device)
+        self.batch['query_states'] = states
+
+        context = self.model(self.batch)
+        context = context.cpu().detach().numpy()
+        action_indices = np.argmax(context, axis=-1)
+
+        actions = np.zeros((self.batch_size, self.du))
+        actions[np.arange(self.batch_size), action_indices] = 1.0
+        return actions, context

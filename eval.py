@@ -31,7 +31,7 @@ if __name__ == '__main__':
     n_samples = args['samples']
     H = args['H']
     dim = args['dim']
-    state_dim = dim
+    state_dim = 1
     action_dim = dim
     n_embd = args['embd']
     n_head = args['head']
@@ -48,8 +48,69 @@ if __name__ == '__main__':
     n_eval = args['n_eval']
     seed = args['seed']
     lin_d = args['lin_d']
-    w = args['exploration_rate']
-    
+
+    exploration_rate_list = []
+
+    if not exploration_rate_list:  # 检查列表是否为空
+        print("Exploration rate list is empty. Skipping PPT-related logic.")
+    else:
+        ppt_configs = {}
+        ppt_filenames = {}
+        ppt_models = {}
+        for w in exploration_rate_list:
+            ppt_config = {
+                        'class': 'ppt',
+                        'exploration_rate': w,
+                        'shuffle': shuffle,
+                        'lr': lr,
+                        'dropout': dropout,
+                        'n_embd': n_embd,
+                        'n_layer': n_layer,
+                        'n_head': n_head,
+                        'n_envs': n_envs,
+                        'n_hists': n_hists,
+                        'n_samples': n_samples,
+                        'horizon': horizon,
+                        'dim': dim,
+                        'seed': seed,
+                    }
+            if envname == 'bandit':
+                ppt_config.update({'var': var, 'cov': cov})
+                ppt_filenames[w] = build_model_filename(envname, ppt_config)
+
+            ppt_configs[w] = ppt_config
+            
+            ppt_config_model = {
+                'horizon': H,
+                'state_dim': state_dim,
+                'action_dim': action_dim,
+                'n_layer': n_layer,
+                'n_embd': n_embd,
+                'n_head': n_head,
+                'dropout': dropout,
+                'test': True,
+            }
+            model_ctx = Context_extractor(ppt_config_model).to(device)
+            model_act = Transformer(ppt_config_model).to(device)
+
+            tmp_filename_ppt = ppt_filenames[w]
+            if epoch < 0:
+                model_path_act = f'models/{tmp_filename_ppt}_model_act.pt'
+                model_path_ctx = f'models/{tmp_filename_ppt}_model_ctx.pt'
+            else:
+                model_path_act = f'models/{tmp_filename_ppt}_model_act_epoch{epoch}.pt'
+                model_path_ctx = f'models/{tmp_filename_ppt}_model_ctx_epoch{epoch}.pt'
+            
+            checkpoint_act = torch.load(model_path_act, map_location=device)
+            checkpoint_ctx = torch.load(model_path_ctx, map_location=device)
+
+            model_act.load_state_dict(checkpoint_act)
+            model_act.eval()
+            model_ctx.load_state_dict(checkpoint_ctx)
+            model_ctx.eval()
+
+            ppt_models[w] = (model_act, model_ctx)
+
     tmp_seed = seed
     if seed == -1:
         tmp_seed = 0
@@ -69,9 +130,9 @@ if __name__ == '__main__':
         'shuffle': shuffle,
         'lr': lr,
         'dropout': dropout,
-        'n_embd': 32,
-        'n_layer': 4,
-        'n_head': 4,
+        'n_embd': n_embd,
+        'n_layer': n_layer,
+        'n_head': n_head,
         'n_envs': n_envs,
         'n_hists': n_hists,
         'n_samples': n_samples,
@@ -79,92 +140,50 @@ if __name__ == '__main__':
         'dim': dim,
         'seed': seed,
     }
-
-    ppt_config = {
-        'class': 'ppt',
-        'exploration_rate': w,
-        'shuffle': shuffle,
-        'lr': lr,
-        'dropout': dropout,
-        'n_embd': 32,
-        'n_layer': 4,
-        'n_head': 4,
-        'n_envs': n_envs,
-        'n_hists': n_hists,
-        'n_samples': n_samples,
-        'horizon': horizon,
-        'dim': dim,
-        'seed': seed,
-    }
-
+  
     if envname == 'bandit':
         state_dim = 1
 
         dpt_config.update({'var': var, 'cov': cov})
-        ppt_config.update({'var': var, 'cov': cov})
-        filename1 = build_model_filename(envname, dpt_config)
-        filename2 = build_model_filename(envname, ppt_config)
-
+        dpt_filename = build_model_filename(envname, dpt_config)
         bandit_type = 'uniform'
-    # elif envname == 'bandit_bernoulli':
-    #     state_dim = 1
-
-    #     model_config.update({'var': var, 'cov': cov})
-    #     filename = build_model_filename(envname, model_config)
-    #     bandit_type = 'bernoulli'
     else:
         raise NotImplementedError
 
-    config1 = {
+    dpt_config_model = {
         'horizon': H,
         'state_dim': state_dim,
         'action_dim': action_dim,
-        'n_layer': 4,
-        'n_embd': 32,
-        'n_head': 4,
+        'n_layer': n_layer,
+        'n_embd': n_embd,
+        'n_head': n_head,
         'dropout': dropout,
         'test': True,
     }
-    config2 = {
-        'horizon': H,
-        'state_dim': state_dim,
-        'action_dim': action_dim,
-        'n_layer': 4,
-        'n_embd': 32,
-        'n_head': 4,
-        'dropout': dropout,
-        'test': True,
-    }
+
 
     # Load network from saved file.
     # By default, load the final file, otherwise load specified epoch.
 
-    model_pre = pretrain_transformer(config1).to(device)
-    model_ctx = Context_extractor(config2).to(device)
-    model_act = Transformer(config2).to(device)
+    dpt_model = pretrain_transformer(dpt_config_model).to(device)
     
-    tmp_filename1 = filename1
-    tmp_filename2 = filename2
+    tmp_filename_dpt = dpt_filename
 
     if epoch < 0:
-        model_path_pre = f'models/{tmp_filename1}.pt'
-        model_path_act = f'models/{tmp_filename2}_model_act.pt'
-        model_path_ctx = f'models/{tmp_filename2}_model_ctx.pt'
+        model_path_pre = f'models/{tmp_filename_dpt}.pt'
     else:
-        model_path_pre = f'models/{tmp_filename1}_epoch{epoch}.pt'
-        model_path_act = f'models/{tmp_filename2}_model_act_epoch{epoch}.pt'
-        model_path_ctx = f'models/{tmp_filename2}_model_ctx_epoch{epoch}.pt'
+        model_path_pre = f'models/{tmp_filename_dpt}_epoch{epoch}.pt'
 
     checkpoint_pre = torch.load(model_path_pre, map_location=device)
-    checkpoint_act = torch.load(model_path_act, map_location=device)
-    checkpoint_ctx = torch.load(model_path_ctx, map_location=device)
 
-    model_pre.load_state_dict(checkpoint_pre)
-    model_pre.eval()
-    model_act.load_state_dict(checkpoint_act)
-    model_act.eval()
-    model_ctx.load_state_dict(checkpoint_ctx)
-    model_ctx.eval()
+    dpt_model.load_state_dict(checkpoint_pre)
+    dpt_model.eval()
+
+    model_list = [(dpt_model, 'dpt')]
+    if exploration_rate_list:
+        for w in exploration_rate_list:
+            model_list.append((ppt_models[w], f'ppt_{w}'))
+
 
     dataset_config = {
         'horizon': horizon,
@@ -175,7 +194,7 @@ if __name__ == '__main__':
         dataset_config.update({'var': var, 'cov': cov, 'type': 'uniform'})
         eval_filepath = build_data_filename(
             envname, n_eval, dataset_config, mode=2)
-        save_filename = f'{filename2}_testcov{test_cov}_hor{horizon}.pkl'
+        save_filename = f'{dpt_filename}_testcov{test_cov}_hor{horizon}.pkl'
 
     else:
         raise ValueError(f'Environment {envname} not supported')
@@ -201,29 +220,68 @@ if __name__ == '__main__':
 
     # Online and offline evaluation.
     if envname == 'bandit':
-        simulated_var = 1.0
-        config = {
-            'horizon': horizon,
-            'var': simulated_var,
-            'n_eval': n_eval,
-            'exploration_rate': w,
-            # 'bandit_type': bandit_type,
-        }
+        regret_values = {}
 
-        save_filename = f'{save_filename}_simvar{simulated_var}'
-        
-        model_list = [(model_pre, 'dpt'), ([model_act, model_ctx], 'ppt')]
-        eval_bandit.online(eval_trajs, model_list=model_list, **config, evals_filename = evals_filename, save_filename = save_filename)
-        plt.savefig(f'figs/{evals_filename}/online/{save_filename}.png')
-        plt.clf()
-        plt.cla()
-        plt.close()
+        for simulated_var in [0.3, 0.5, 0.8]:
+            config = {
+                'horizon': horizon,
+                'var': simulated_var,
+                'n_eval': n_eval,
+                # 'bandit_type': bandit_type,
+            }
 
-        # means = 0.1 * np.random.randint(1, 9, size=(10,3))
+            save_filename_online = f'{save_filename}_simvar{simulated_var}'
+
+            regret_means = eval_bandit.online(eval_trajs, model_list=model_list, **config)
+
+            regret_values[simulated_var] = regret_means
+
+            plt.savefig(f'figs/{evals_filename}/online/{save_filename_online}.png')
+            plt.clf()
+            plt.cla()
+            plt.close()
+
+        fig, ax = plt.subplots(figsize=(12, 8))
+
+        sim_vars = list(regret_values.keys())
+        keys = list(next(iter(regret_values.values())).keys())
+
+        bar_width = 0.1  # Decrease the width of the bar
+        alpha = 0.7  # Increase the transparency
+
+        offset = np.arange(len(sim_vars))
+
+        for i, key in enumerate(keys):
+            values = [regret_values[sim_var][key] for sim_var in sim_vars]
+            ax.bar(offset + i * bar_width, values, bar_width, alpha=alpha, label=f'{key}')
+
+        # Highlight the best algorithm for each sim_var
+        for j, sim_var in enumerate(sim_vars):
+            best_key = min(regret_values[sim_var], key=regret_values[sim_var].get)
+            best_value = regret_values[sim_var][best_key]
+            best_index = keys.index(best_key)
+            bars = ax.bar(offset[j] + best_index * bar_width, best_value, bar_width, alpha=1.0, edgecolor='black', linewidth=2)
+            for bar in bars:
+                bar.set_facecolor(ax.patches[best_index].get_facecolor())
+
+        ax.set_xticks(offset + bar_width * (len(keys) - 1) / 2)
+        ax.set_xticklabels(sim_vars)
+
+        ax.set_xlabel('Sim Variance')
+        ax.set_ylabel('Cumulative Regret')
+        ax.set_title('Cumulative Regret for Different Sim Variances')
+        ax.legend()
+
+        plt.savefig(f'figs/{evals_filename}/suboptimality_comparison.png')
+
+
+        # means = np.random.randint(50, 55, (10, dim)) * 0.01
+
         # for j in range(10):
+
         #     eval_bandit.online_sample(
-        #         model=[model_act, model_ctx], model0=model_pre, means = means[j], horizon = horizon, var = simulated_var)
-        #     plt.savefig(f'figs/{evals_filename}/online_sample/{save_filename}_{means[j]}.png')
+        #         model_list = model_list, means = means[j], horizon = horizon, var = 0.3,  type='easy')
+        #     plt.savefig(f'figs/{evals_filename}/online_sample/{save_filename_online}_{means[j]}.png')
         #     plt.clf()
         #     plt.cla()
         #     plt.close()
@@ -235,6 +293,5 @@ if __name__ == '__main__':
         # eval_bandit.offline_graph(eval_trajs, model, **config)
         # plt.savefig(f'figs/{evals_filename}/graph/{save_filename}_graph.png')
         # plt.clf()
-        
     else:
         raise NotImplementedError

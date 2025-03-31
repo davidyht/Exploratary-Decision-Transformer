@@ -21,7 +21,7 @@ class Context_extractor(nn.Module):
         self.dropout = self.config['dropout']
 
         config = GPT2Config(
-            n_positions=4 * (self.horizon + 1),
+            n_positions=500,
             n_embd=self.n_embd,
             n_layer=self.n_layer,
             n_head=self.n_head,
@@ -74,7 +74,7 @@ class pretrain_transformer(nn.Module):
         self.dropout = self.config['dropout']
 
         config = GPT2Config(
-            n_positions=4 * (self.horizon + 1),
+            n_positions=500,
             n_embd=self.n_embd,
             n_layer=self.n_layer,
             n_head=self.n_head,
@@ -129,7 +129,7 @@ class Transformer(nn.Module):
         self.dropout = self.config['dropout']
 
         config = GPT2Config(
-            n_positions=4 * (self.horizon + 1),
+            n_positions=500,
             n_embd=self.n_embd,
             n_layer=self.n_layer,
             n_head=self.n_head,

@@ -11,7 +11,7 @@ from envs import bandit_env, darkroom_env
 from utils import build_data_filename, build_darkroom_data_filename
 
 
-def rollin_bandit(env, cov, exp=False, orig=False):
+def rollin_bandit(env, cov, exp=False, orig=False, style='convergent'):
     H = env.H
     opt_a_index = env.opt_a_index
     xs, us, xps, rs = [], [], [], []
@@ -32,21 +32,49 @@ def rollin_bandit(env, cov, exp=False, orig=False):
         probs2[opt_a_index] = 1.0
         probs = (1 - cov) * probs + cov * probs2
 
-    for h in range(H):
-        x = np.array([1])
-        u = np.zeros(env.dim)
-        i = np.random.choice(np.arange(env.dim), p=probs)
-        u[i] = 1.0
-        xp, r = env.transit(x, u)
+    if style == 'convergent':
+        h_cvg = np.random.randint(1, H)
+        for h in range(h_cvg):
+            x = np.array([1])
+            u = np.zeros(env.dim)
+            i = np.random.choice(np.arange(env.dim), p=probs)
+            u[i] = 1.0
+            xp, r = env.transit(x, u)
 
-        xs.append(x)
-        us.append(u)
-        xps.append(xp)
-        rs.append(r)
+            xs.append(x)
+            us.append(u)
+            xps.append(xp)
+            rs.append(r)
+        for h in range(h_cvg, H):
+            x = np.array([1])
+            u = np.zeros(env.dim)
+            i = opt_a_index
+            u[i] = 1.0
+            xp, r = env.transit(x, u)
+            xs.append(x)
+            us.append(u)
+            xps.append(xp)
+            rs.append(r)
+    else:
+        for h in range(H):
+            x = np.array([1])
+            u = np.zeros(env.dim)
+            i = np.random.choice(np.arange(env.dim), p=probs)
+            u[i] = 1.0
+            xp, r = env.transit(x, u)
+
+            xs.append(x)
+            us.append(u)
+            xps.append(xp)
+            rs.append(r)
 
     xs, us, xps, rs = np.array(xs), np.array(us), np.array(xps), np.array(rs)
-    ns = np.cumsum(us, axis=0)
-    c = np.zeros((H, env.dim)) # Context prediction is not provided in offline dataset.
+
+    # c = np.zeros((H, env.dim)) # Context prediction is not provided in offline dataset.
+    num = np.cumsum(us, axis=0)
+    cum_r = np.einsum('i,ij->ij', rs, us)
+    cum_r = np.cumsum(cum_r, axis=0)
+    c = cum_r / (num + 1e-8)
     
     return xs, us, xps, rs, c
 
@@ -146,7 +174,8 @@ def generate_mdp_histories_from_envs(envs, n_hists, n_samples, rollin_type):
 
 
 def generate_bandit_histories(n_envs, dim, horizon, var, **kwargs):
-    envs = [bandit_env.sample(dim, horizon, var)
+    perturb = np.random.choice([0.0, .05, .1, .15, .2, .25, .3, .35, .4, .45, .5], size=n_envs)
+    envs = [bandit_env.sample(dim, horizon, var + perturb[_]) 
             for _ in range(n_envs)]
     trajs = generate_bandit_histories_from_envs(envs, **kwargs)
     return trajs

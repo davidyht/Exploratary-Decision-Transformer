@@ -6,7 +6,7 @@ from utils import convert_to_tensor
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
-def deploy_online(env, controller, horizon):
+def deploy_online(env, controller, horizon, include_meta=False):
     # Initialize context variables
     context_states = torch.zeros((1, horizon, env.dx)).float().to(device)
     context_actions = torch.zeros((1, horizon, env.du)).float().to(device)
@@ -39,11 +39,20 @@ def deploy_online(env, controller, horizon):
         mean = env.get_arm_value(actions)
 
         cum_means.append(mean)
+    
+    cum_means = np.array(cum_means)
 
-        # if h == horizon - 1:
-        #     print(context)
-
-    return np.array(cum_means)
+    if not include_meta:
+        return cum_means
+    else:
+        meta = {
+            'context_states': context_states,
+            'context_actions': context_actions,
+            'context_next_states': context_next_states,
+            'context_rewards': context_rewards,
+            'context': context,
+        }
+        return cum_means, meta
 
 
 def deploy_online_vec(vec_env, controller, horizon, include_meta=False):
