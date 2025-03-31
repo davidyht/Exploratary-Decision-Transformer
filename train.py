@@ -346,17 +346,16 @@ def train_ppt():
             plt.clf()
                 
         # Early stopping logic
-        if test_act_loss[-1] < best_loss:
-            best_loss = test_act_loss[-1]
-            patience_counter = 0  # Reset patience counter
-
-        else:
-            patience_counter += 1
-            printw(f"\tTest loss increased. Patience counter: {patience_counter}")
-            if patience_counter >= patience:
-                printw("Early stopping triggered. Training halted.")
-                break
-        
+        if epoch >= 10:  # Only apply early stopping after the 10th iteration
+            if test_act_loss[-1] < best_loss:
+                best_loss = test_act_loss[-1]
+                patience_counter = 0  # Reset patience counter
+            else:
+                patience_counter += 1
+                printw(f"\tTest loss increased. Patience counter: {patience_counter}")
+                if patience_counter >= patience:
+                    printw("Early stopping triggered. Training halted.")
+                    break
     torch.save(model_ctx.state_dict(), f'models/{filename}_model_ctx.pt')
     torch.save(model_act.state_dict(), f'models/{filename}_model_act.pt')
     print("Done.")
