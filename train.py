@@ -40,13 +40,13 @@ def printw(string, log_filename):
 def wsd_lr_scheduler(optimizer, warmup_steps, total_steps, base_lr):
     def lr_lambda(current_step):
         if current_step < warmup_steps:
-            # Warmup阶段
+            # Warmup
             return current_step / warmup_steps
         elif current_step < total_steps:
-            # Step阶段（保持恒定学习率）
+            # Step Phase
             return 1.0
         else:
-            # Decay阶段（指数衰减）
+            # Decay
             decay_steps = total_steps - warmup_steps
             return (0.1 ** ((current_step - warmup_steps) / decay_steps))
     
