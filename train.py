@@ -325,7 +325,7 @@ def train_ppt():
         printw(f"\t Train Context loss: {train_context_loss[-1]}", log_filename)
         printw(f"\tTrain time: {end_time - start_time}", log_filename)
         # LOGGING
-        if (epoch + 1) % 100 == 0:
+        if (epoch + 1) % 10 == 0:
             torch.save(model_ctx.state_dict(), f'models/{filename}_model_ctx_epoch{epoch+1}.pt')
             torch.save(model_act.state_dict(), f'models/{filename}_model_act_epoch{epoch+1}.pt')
 
