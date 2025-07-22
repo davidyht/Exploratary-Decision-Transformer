@@ -107,3 +107,11 @@ def convert_to_tensor(x, store_gpu=True):
         return torch.tensor(np.asarray(x)).float().to(device)
     else:
         return torch.tensor(np.asarray(x)).float()
+    
+
+def set_seed(seed):
+    import random
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)

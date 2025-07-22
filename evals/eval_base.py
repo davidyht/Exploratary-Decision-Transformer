@@ -1,12 +1,14 @@
 import numpy as np
 import torch
 
-from utils import convert_to_tensor
+from utils import convert_to_tensor, set_seed
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 def deploy_online(env, controller, horizon, include_meta=False):
+    seed = 42
+    set_seed(42)
     # Initialize context variables
     context_states = torch.zeros((1, horizon, env.dx)).float().to(device)
     context_actions = torch.zeros((1, horizon, env.du)).float().to(device)

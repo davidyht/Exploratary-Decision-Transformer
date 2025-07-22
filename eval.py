@@ -49,7 +49,7 @@ if __name__ == '__main__':
     seed = args['seed']
     lin_d = args['lin_d']
 
-    exploration_rate_list = []
+    exploration_rate_list = [100.0, 200.0]
 
     if not exploration_rate_list:  # 检查列表是否为空
         print("Exploration rate list is empty. Skipping PPT-related logic.")
@@ -224,9 +224,10 @@ if __name__ == '__main__':
 
         for simulated_var in [0.3, 0.5, 0.8]:
             config = {
-                'horizon': horizon,
+                'horizon': 200,
                 'var': simulated_var,
                 'n_eval': n_eval,
+                'seed': seed,
                 # 'bandit_type': bandit_type,
             }
 

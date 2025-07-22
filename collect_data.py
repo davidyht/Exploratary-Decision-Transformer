@@ -11,7 +11,7 @@ from envs import bandit_env, darkroom_env
 from utils import build_data_filename, build_darkroom_data_filename
 
 
-def rollin_bandit(env, cov, exp=False, orig=False, style='convergent'):
+def rollin_bandit(env, cov, exp=False, orig=False, style='default'):
     H = env.H
     opt_a_index = env.opt_a_index
     xs, us, xps, rs = [], [], [], []
@@ -33,6 +33,7 @@ def rollin_bandit(env, cov, exp=False, orig=False, style='convergent'):
         probs = (1 - cov) * probs + cov * probs2
 
     if style == 'convergent':
+        # when set to 'convergent', optimal arm is always picked after h_cvg steps
         h_cvg = np.random.randint(1, H)
         for h in range(h_cvg):
             x = np.array([1])
@@ -175,7 +176,7 @@ def generate_mdp_histories_from_envs(envs, n_hists, n_samples, rollin_type):
 
 def generate_bandit_histories(n_envs, dim, horizon, var, **kwargs):
     perturb = np.random.choice([0.0, .05, .1, .15, .2, .25, .3, .35, .4, .45, .5], size=n_envs)
-    envs = [bandit_env.sample(dim, horizon, var + perturb[_]) 
+    envs = [bandit_env.sample(dim, horizon, var) 
             for _ in range(n_envs)]
     trajs = generate_bandit_histories_from_envs(envs, **kwargs)
     return trajs

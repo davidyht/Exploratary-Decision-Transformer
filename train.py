@@ -180,7 +180,7 @@ def ppt_trainer(context_pred, action_pred, true_context, true_action, w):
     curiousity = (context_pred.detach() - true_context)**2
     bonus_act_exp = torch.einsum('ijk ,ijk ->ij', curiousity, torch.nn.functional.softmax(action_pred, dim=-1))
     loss_act = loss_act_ce - w * bonus_act_exp.sum()
-    return (loss_act, loss_ctx)
+    return (loss_act, loss_act_ce, loss_ctx)
 
 
 
@@ -258,9 +258,9 @@ def train_ppt():
                 pred_actions = model_act(batch)
                 batch['context'] = context_copy
 
-                (loss_act, loss_ctx) = ppt_trainer(context_pred, pred_actions, true_context, true_actions, w)
+                (loss_act, loss_act_ce, loss_ctx) = ppt_trainer(context_pred, pred_actions, true_context, true_actions, w)
 
-                epoch_test_act_loss += loss_act.item() / horizon
+                epoch_test_act_loss += loss_act_ce.item() / horizon
                 epoch_test_context_loss += loss_ctx.item() / horizon
 
         test_act_loss.append(epoch_test_act_loss / len(test_dataset))
@@ -306,13 +306,13 @@ def train_ppt():
             
             optimizer_act.zero_grad()
             optimizer_ctx.zero_grad()
-            (loss_act, loss_ctx) = ppt_trainer(context_pred, pred_actions, true_context, true_actions, w)
+            (loss_act, loss_act_ce, loss_ctx) = ppt_trainer(context_pred, pred_actions, true_context, true_actions, w)
             loss_act.backward()
             loss_ctx.backward()
             optimizer_act.step()
             optimizer_ctx.step()
 
-            epoch_train_act_loss += loss_act.item() / horizon
+            epoch_train_act_loss += loss_act_ce.item() / horizon
             epoch_train_context_loss += loss_ctx.item() / horizon
 
             optimizer_act.step()
@@ -345,17 +345,17 @@ def train_ppt():
             plt.savefig(f"figs/loss/{filename}_train_loss.png")
             plt.clf()
                 
-        # Early stopping logic
-        if epoch >= 10:  # Only apply early stopping after the 10th iteration
-            if test_act_loss[-1] < best_loss:
-                best_loss = test_act_loss[-1]
-                patience_counter = 0  # Reset patience counter
-            else:
-                patience_counter += 1
-                printw(f"\tTest loss increased. Patience counter: {patience_counter}")
-                if patience_counter >= patience:
-                    printw("Early stopping triggered. Training halted.")
-                    break
+        # # Early stopping logic
+        # if epoch >= 10:  # Only apply early stopping after the 10th iteration
+        #     if test_act_loss[-1] < best_loss:
+        #         best_loss = test_act_loss[-1]
+        #         patience_counter = 0  # Reset patience counter
+        #     else:
+        #         patience_counter += 1
+        #         printw(f"\tTest loss increased. Patience counter: {patience_counter}")
+        #         if patience_counter >= patience:
+        #             printw("Early stopping triggered. Training halted.")
+        #             break
     torch.save(model_ctx.state_dict(), f'models/{filename}_model_ctx.pt')
     torch.save(model_act.state_dict(), f'models/{filename}_model_act.pt')
     print("Done.")
@@ -481,17 +481,17 @@ def train_dpt():
             plt.savefig(f"figs/loss/{filename}_train_loss.png")
             plt.clf()
         
-        # Early stopping logic
-        if test_loss[-1] < best_loss:
-            best_loss = test_loss[-1]
-            patience_counter = 0  # Reset patience counter
-        else:
-            patience_counter += 1
-            printw(f"\tTest loss increased. Patience counter: {patience_counter}")
-            if patience_counter >= patience:
-                printw("Early stopping triggered. Training halted.")
-                torch.save(model.state_dict(), f'models/{filename}.pt')
-                break
+        # # Early stopping logic
+        # if test_loss[-1] < best_loss:
+        #     best_loss = test_loss[-1]
+        #     patience_counter = 0  # Reset patience counter
+        # else:
+        #     patience_counter += 1
+        #     printw(f"\tTest loss increased. Patience counter: {patience_counter}")
+        #     if patience_counter >= patience:
+        #         printw("Early stopping triggered. Training halted.")
+        #         torch.save(model.state_dict(), f'models/{filename}.pt')
+        #         break
     torch.save(model.state_dict(), f'models/{filename}.pt')
     print("Done.")
 

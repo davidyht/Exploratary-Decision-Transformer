@@ -122,7 +122,7 @@ def online_sample(model_list, means, horizon, var, type = 'easy'):
     ax3.legend()
 
 
-def online(eval_trajs, model_list, n_eval, horizon, var, type = 'easy'):
+def online(eval_trajs, model_list, n_eval, horizon, var, seed = 0, type = 'easy'):
     # Dictionary to store means of different policies
     all_means = {}
     all_context = {}
@@ -158,6 +158,11 @@ def online(eval_trajs, model_list, n_eval, horizon, var, type = 'easy'):
         vec_env.reset_optimal_picks()
 
     for (model, model_class) in model_list:
+        # Set random seeds for reproducibility
+        np.random.seed(seed)
+        torch.manual_seed(seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(seed)
         if model_class == 'dpt':
             controller = BanditTransformerController(
                 model,
@@ -173,6 +178,7 @@ def online(eval_trajs, model_list, n_eval, horizon, var, type = 'easy'):
                 sample=True,
                 batch_size=len(envs))
             cum_means, meta = deploy_online_vec(vec_env, controller, horizon, include_meta=True)
+            # print(meta['context_actions'][0])
             cum_means = cum_means.T
             context = meta['context']
             context_loss = np.zeros(horizon)

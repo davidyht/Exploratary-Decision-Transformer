@@ -61,6 +61,7 @@ class Dataset(torch.utils.data.Dataset):
         true_context = []
 
         for traj in self.trajs:
+
             context_states.append(traj['context_states'])
             context_actions.append(traj['context_actions'])
             context_next_states.append(traj['context_next_states'])
@@ -75,6 +76,7 @@ class Dataset(torch.utils.data.Dataset):
         context_actions = np.array(context_actions)
         context_next_states = np.array(context_next_states)
         context_rewards = np.array(context_rewards)
+
         context = np.array(context)
         
         if len(context_rewards.shape) < 3:
